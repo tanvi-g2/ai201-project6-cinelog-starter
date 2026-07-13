@@ -102,3 +102,26 @@ def test_add_to_watchlist_nonexistent_film_raises(app, sample_user):
 
         with pytest.raises(FilmNotFoundError):
             add_to_watchlist(user_id=sample_user, film_id=fake_film_id)
+
+
+# ── Two users, same film ─────────────────────────────────────────────────────
+
+def test_add_to_watchlist_allows_different_users_same_film(app, sample_film):
+    """
+    Two different users should each be able to add the same film to their
+    own watchlist — the dedup check is scoped per user, not global to the
+    film. This guards against an overly broad dedup query (e.g. one that
+    filters on film_id alone) that would incorrectly block the second user.
+    """
+    with app.app_context():
+        user_a = User(username="user_a", email="a@example.com")
+        user_b = User(username="user_b", email="b@example.com")
+        db.session.add_all([user_a, user_b])
+        db.session.commit()
+
+        entry_a = add_to_watchlist(user_id=user_a.id, film_id=sample_film)
+        entry_b = add_to_watchlist(user_id=user_b.id, film_id=sample_film)
+
+        assert entry_a.user_id != entry_b.user_id
+        count = WatchlistEntry.query.filter_by(film_id=sample_film).count()
+        assert count == 2
