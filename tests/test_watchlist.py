@@ -5,6 +5,8 @@ Tests for the watchlist service, following the same fixture and assertion
 pattern used in tests/test_collection.py.
 """
 
+from datetime import datetime, timezone, timedelta
+
 import pytest
 from app import create_app, db
 from models import User, Film, WatchlistEntry
@@ -125,3 +127,33 @@ def test_add_to_watchlist_allows_different_users_same_film(app, sample_film):
         assert entry_a.user_id != entry_b.user_id
         count = WatchlistEntry.query.filter_by(film_id=sample_film).count()
         assert count == 2
+
+
+# ── get_watchlist sort order ─────────────────────────────────────────────────
+
+def test_get_watchlist_returns_oldest_first(app, sample_user):
+    """
+    get_watchlist() should return films sorted by date_added ascending
+    (oldest queued first) — see Comment 5 in pr-response.md for why this
+    is queue order rather than newest-first or alphabetical.
+    """
+    with app.app_context():
+        film_a = Film(title="Alien", year=1979, genre="Horror")
+        film_b = Film(title="Blade Runner", year=1982, genre="Sci-Fi")
+        db.session.add_all([film_a, film_b])
+        db.session.commit()
+
+        earlier = datetime.now(timezone.utc) - timedelta(days=5)
+        later = datetime.now(timezone.utc)
+
+        entry_a = WatchlistEntry(user_id=sample_user, film_id=film_a.id, date_added=earlier)
+        entry_b = WatchlistEntry(user_id=sample_user, film_id=film_b.id, date_added=later)
+        db.session.add_all([entry_a, entry_b])
+        db.session.commit()
+
+        watchlist = get_watchlist(sample_user)
+        titles = [f["title"] for f in watchlist]
+
+        # Alien was added first, so it should come first (queue order)
+        assert titles[0] == "Alien"
+        assert titles[1] == "Blade Runner"
